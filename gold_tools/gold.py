@@ -325,7 +325,7 @@ class PandaGUI:
     def update_real_time(self):
         # 获取实时金价
         try:
-            self.current_price = getPrice()  # 假设 getPrice() 返回元/克的浮点数
+            self.current_price = getPrice('gds_AUTD')  # 假设 getPrice() 返回元/克的浮点数
         except Exception as e:
             self.current_price = 0.0  # 如果 API 调用失败，使用默认值
 
