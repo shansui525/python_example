@@ -1,0 +1,16 @@
+{
+    "openai_api_key": "",
+    "obsidian_vault_path": "",
+    "summary_language": "zh",
+    "summary_length": {
+        "min": 100,
+        "max": 200
+    },
+    "use_local_ollama": true,
+    "ollama_base_url": "http://localhost:11434/v1",
+    "ollama_model": "qwen3:8b",
+    "fetch_interval_hours": 1,
+    "auto_fetch_on_startup": true,
+    "database_path": "rss_data.db",
+    "log_level": "INFO"
+}
