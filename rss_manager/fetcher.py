@@ -32,7 +32,7 @@ except Exception:
 
 
 class RSSFetcher:
-    def __init__(self, db: Database, api_key: str = None, base_url: str = None):
+    def __init__(self, db: Database, api_key: str = None, base_url: str = None, model_name: str = None):
         self.db = db
         self.session = requests.Session()
         self.session.headers.update({
@@ -41,13 +41,29 @@ class RSSFetcher:
 
         # 【新增】初始化 Summarizer，传入 db 和可能的配置
         # 如果不传参，Summarizer 内部会尝试读取环境变量或默认配置
-        self.summarizer = Summarizer(db=db, api_key=api_key, base_url=base_url)
+        self.summarizer = Summarizer(db=db, api_key=api_key, base_url=base_url, model_name=model_name)
 
     def fetch_feed(self, url: str) -> Optional[Dict]:
         """解析RSS订阅源"""
         try:
             logger.info(f"Fetching feed: {url}")
-            response = self.session.get(url, timeout=30)
+
+            # 【优化】添加多个 User-Agent 备选
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            ]
+
+            import random
+            headers = {
+                'User-Agent': random.choice(user_agents),
+                'Accept': 'application/rss+xml, application/xml, text/html;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Connection': 'keep-alive'
+            }
+            response = self.session.get(url, headers=headers, timeout=30)
+            # print("Response status code:", response.text)
             response.raise_for_status()
 
             feed = feedparser.parse(response.content)
@@ -117,6 +133,18 @@ class RSSFetcher:
             # 清理内容
             clean_content = self._clean_html(entry['content'])
 
+            # 检查日期：如果文章发布日期早于当前时间 2 天以上，则跳过
+            try:
+                published_date = datetime.strptime(formatted_published_at, "%Y-%m-%d %H:%M:%S")
+                current_time = datetime.now()
+                days_diff = (current_time - published_date).days
+
+                if days_diff > 2:
+                    logger.info(f"跳过过期文章：{entry['title']}，发布日期：{formatted_published_at}，已过去{days_diff}天")
+                    continue
+            except Exception as e:
+                logger.warning(f"日期比较失败，使用默认逻辑：{e}")
+
             # 存入数据库
             article_id = self.db.add_article(
                 feed_id=feed_id,
@@ -130,24 +158,24 @@ class RSSFetcher:
             if article_id:
                 new_count += 1
 
-                # 【新增】如果文章成功插入，且内容足够，立即生成摘要
-                if len(clean_content) > 50:
-                    logger.info(f"正在生成摘要：{entry['title']}")
-                    keywords, summary = self.summarizer.summarize(
-                        content=clean_content,
-                        title=entry['title']
-                    )
-
-                    # 只有当摘要生成成功（不包含错误标记）时才更新数据库
-                    if '⚠️' not in summary:
-                        self.db.update_article_summary(article_id, summary, keywords)
-                        summarized_count += 1
-                        logger.info(f"摘要生成成功：{entry['title']}")
-                    else:
-                        logger.warning(f"摘要生成失败：{entry['title']} - {summary}")
-
-                # 避免触发 Ollama 或 API 限流，每次请求后暂停
-                time.sleep(1)
+                # # 【新增】如果文章成功插入，且内容足够，立即生成摘要
+                # if len(clean_content) > 50:
+                #     logger.info(f"正在生成摘要：{entry['title']}")
+                #     keywords, summary = self.summarizer.summarize(
+                #         content=clean_content,
+                #         title=entry['title']
+                #     )
+                #
+                #     # 只有当摘要生成成功（不包含错误标记）时才更新数据库
+                #     if '⚠️' not in summary:
+                #         self.db.update_article_summary(article_id, summary, keywords)
+                #         summarized_count += 1
+                #         logger.info(f"摘要生成成功：{entry['title']}")
+                #     else:
+                #         logger.warning(f"摘要生成失败：{entry['title']} - {summary}")
+                #
+                # # 避免触发 Ollama 或 API 限流，每次请求后暂停
+                # time.sleep(1)
 
         self.db.update_feed_fetch_time(feed_id)
 
@@ -269,7 +297,7 @@ class ContentExtractor:
     def extract(self, url: str) -> str:
         """提取网页正文"""
         try:
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=60)
             response.raise_for_status()
 
             soup = BeautifulSoup(response.content, 'lxml')
@@ -284,6 +312,7 @@ class ContentExtractor:
             # 清理
             text = re.sub(r'\s+', ' ', text)
             text = text[:5000]
+            print(f'-----{text[:50]}')
 
             return text
         except Exception as e:
@@ -295,11 +324,14 @@ class Summarizer:
     # 【新增】在类级别定义 logger，确保即使模块级失效也能用
     _class_logger = logging.getLogger(__name__ + ".Summarizer")
 
-    def __init__(self, db: Database, api_key: str = None, base_url: str = None):
+    def __init__(self, db: Database, api_key: str = None, base_url: str = None, model_name: str = None):
         self.db = db
-        self.api_key = 'ollama'
-        self.base_url = base_url or 'http://localhost:11434/v1'
         self.config = self._load_config()
+
+        # 【修改】从配置加载 API key 和 base_url，支持参数覆盖
+        self.api_key = api_key or self.config.get('openai_api_key', '')
+        self.base_url = base_url or self.config.get('openai_base_url', 'http://localhost:11434/v1')
+        self.model_name = model_name or self.config.get('openai_model_name', 'qwen3:8b')
         # 实例化时也绑定一下 logger
         self.logger = logging.getLogger(__name__)
 
@@ -314,6 +346,12 @@ class Summarizer:
             'summary_length': {'min': 100, 'max': 200}
         }
 
+
+    def _save_config(self):
+        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(self.config, f, ensure_ascii=False, indent=4)
+
     def parse_summary_response(self, response: str) -> Tuple[str, str, str, Dict]:
         """
         解析 JSON 响应
@@ -323,10 +361,28 @@ class Summarizer:
             return "", "", "", {}
 
         try:
-            # 尝试清理可能的 Markdown 代码块标记
-            clean_response = re.sub(r'^json\s*', '', response, flags=re.MULTILINE)
-            clean_response = re.sub(r'\s*$', '', clean_response, flags=re.MULTILINE)
+            # 【优化】增强 JSON 提取逻辑，处理多种格式情况
+            clean_response = response.strip()
+
+            # 1. 移除 Markdown 代码块标记（支持多种语言和格式）
+            # 匹配 ```json ... ``` 或 ``` ... ```
+            clean_response = re.sub(r'^```\s*(json)?\s*\n?', '', clean_response, flags=re.MULTILINE | re.IGNORECASE)
+            clean_response = re.sub(r'\n?```\s*$', '', clean_response, flags=re.MULTILINE)
+
+            # 2. 移除单行代码标记（支持多个反引号）
+            clean_response = re.sub(r'^`+', '', clean_response, flags=re.MULTILINE)
+            clean_response = re.sub(r'`+$', '', clean_response, flags=re.MULTILINE)
+
+            # 3. 再次清理首尾空白
             clean_response = clean_response.strip()
+
+            # 4. 尝试提取 JSON（如果还包含非 JSON 内容）
+            # 查找第一个 { 和最后一个 }
+            start_idx = clean_response.find('{')
+            end_idx = clean_response.rfind('}') + 1
+
+            if start_idx != -1 and end_idx > start_idx:
+                clean_response = clean_response[start_idx:end_idx]
 
             data = json.loads(clean_response)
 
@@ -375,7 +431,7 @@ class Summarizer:
         content_len = len(clean_content)
 
         # 【优化】过短内容直接跳过
-        if content_len < 50:
+        if content_len < 1000:
             logger.info(f"跳过过短文章 (长度:{content_len}): {title[:20]}...")
             return "无", f"⚠️ 文章内容过短 ({content_len}字)，无需生成摘要。"
 
@@ -400,7 +456,7 @@ class Summarizer:
         try:
             from openai import OpenAI
 
-            model_name = 'qwen3:8b'  # 确保本地有此模型
+            # model_name = 'deepseek-chat'  # 确保本地有此模型
             client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
             language = self.config.get('summary_language', 'zh')
@@ -424,16 +480,16 @@ class Summarizer:
             - 开篇直接点明文章解决的核心问题或提出的主要方案。
             - 中间部分自然穿插实现原理、关键步骤或核心数据支撑。
             - 结尾简要提及该方案的实际价值、局限性或与标题承诺的对比（如果标题有夸大，请委婉指出实际内容的侧重）。
-
+            
             【输出格式】
-            严格仅输出一个 JSON 对象，不要包含 markdown 标记（如json），格式如下： {{ "audit_result": {{ "title_promises": ["标题承诺的关键点"], "fulfilled_promises": ["正文实际详细展开的点"], "missing_promises": ["标题提到但正文未展开的点"], "information_integrity_score": 1-5, "title_honesty_level": "高/中/低/欺诈", "actual_focus": ["正文真正的重点"] }}, "summary": "这里填写你生成的自然流畅的摘要段落", "metadata": {{ "keywords": ["关键词 1", "关键词 2", "关键词 3"], "category": "技术/财经/政策/产品/其他", "reading_time": "预计阅读时间", "suitable_for": ["目标读者"] }}, "quality_assessment": {{ "overall_score": 1-100, "information_density": "高/中/低", "practical_value": "高/中/低", "recommendation": "推荐阅读/快速浏览/标题党慎入" }} }}
+            严格仅输出一个 JSON 对象，不要包含代码标记（如json），格式如下： {{ "audit_result": {{ "title_promises": ["标题承诺的关键点"], "fulfilled_promises": ["正文实际详细展开的点"], "missing_promises": ["标题提到但正文未展开的点"], "information_integrity_score": 1-5, "title_honesty_level": "高/中/低/欺诈", "actual_focus": ["正文真正的重点"] }}, "summary": "这里填写你生成的自然流畅的摘要段落", "metadata": {{ "keywords": ["关键词 1", "关键词 2", "关键词 3"], "category": "技术/财经/政策/产品/其他", "reading_time": "预计阅读时间", "suitable_for": ["目标读者"] }}, "quality_assessment": {{ "overall_score": 1-100, "information_density": "高/中/低", "practical_value": "高/中/低", "recommendation": "推荐阅读/快速浏览/标题党慎入" }} }}
 【评分参考】 90-100: 内容详实且有独到见解；75-89: 信息完整逻辑清晰；60-74: 内容泛泛或有部分缺失；<60: 严重标题党或内容空洞。
 文章标题：{title}
 文章内容： {content[:3000]}
 请直接输出 JSON 对象："""
 
             response = client.chat.completions.create(
-                model=model_name,
+                model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1000, # 增加 token 限制以容纳 JSON 结构
                 temperature=0.3,  # 降低温度以提高 JSON 稳定性
@@ -485,7 +541,7 @@ class Summarizer:
             content = article.get('content', '')
 
             # 如果没有内容但有链接，尝试提取 (保持原有逻辑)
-            if not content and article.get('url'):
+            if len(content)<1000 and article.get('url'):
                 # 注意：网络提取也耗时，可根据需要决定是否在这里做
                 extractor = ContentExtractor()
                 content = extractor.extract(article['url'])

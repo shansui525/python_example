@@ -680,6 +680,12 @@ class DailyReportGenerator:
         self.weekday_map = {0: "星期一", 1: "星期二", 2: "星期三", 3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日"}
         self.weekday = self.weekday_map[base_date.weekday()]
 
+        # base_date = date.today() # 往后加一天
+        # self.today_str = (date.today()+ timedelta(days=-1)).strftime("%Y-%m-%d")
+        # self.report_date_str = base_date.strftime("%Y.%m.%d")
+        # self.weekday_map = {0: "星期一", 1: "星期二", 2: "星期三", 3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日"}
+        # self.weekday = self.weekday_map[base_date.weekday()]
+
         self.use_llm = use_llm
         self.temperature = temperature
         self.llm_processor = None
@@ -716,6 +722,8 @@ class DailyReportGenerator:
             AND a.quality_recommendation IN ('推荐阅读', '强烈推荐', '一般浏览')
             AND summary IS NOT NULL
             AND summary NOT LIKE '%格式错误无法解析%'
+            and summary not like '%摘要生成失败%'
+            and summary not like '%文章内容过短%'
         """
 
         # 添加关键词过滤条件
@@ -750,7 +758,7 @@ class DailyReportGenerator:
             WHERE rn <= {max_per_feed}
             ORDER BY feed_name, quality_score DESC
         """
-        print((f"[LOG] 数据获取SQL: {query}"))
+        # print((f"[LOG] 数据获取SQL: {query}"))
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (self.today_str,))
@@ -823,7 +831,7 @@ class DailyReportGenerator:
 
                 content.append(f"### {idx}. {badge} {title}")
                 content.append("")
-                content.append(f"> {summary}...")
+                content.append(f"> {summary}")
                 content.append("")
                 # 检查链接长度，如果超过 200 则不显示
                 url = art.get('url', '#')
@@ -912,7 +920,7 @@ class DailyReportGenerator:
 
         print(f"💾 写入文件...")
         md_content = self.generate_markdown(selected_articles, llm_generated_content)
-        filename = f"{self.today_str}-RSS 日报.md"
+        filename = f"{self.today_str}-RSS日报.md"
         filepath = os.path.join(output_dir, filename)
 
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -961,6 +969,7 @@ def manage_keywords():
         print("\n" + "=" * 40)
         print("关键词管理")
         print("=" * 40)
+        print(f"当前关键词({len(kf.keywords)}个): {kf.keywords[:10]}...")
         print(f"当前关键词({len(kf.keywords)}个): {kf.keywords[:10]}...")
         print("\n1. 添加关键词")
         print("2. 删除关键词")
@@ -1019,4 +1028,4 @@ if __name__ == "__main__":
         temperature=TEMPERATURE,
         use_keyword_filter=True  # 启用关键词过滤
     )
-    generator.save_report(output_dir="Daily/Daily")
+    generator.save_report(output_dir="Daily")

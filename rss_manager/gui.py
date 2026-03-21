@@ -113,15 +113,24 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.db = Database()
-        self.fetcher = RSSFetcher(self.db)
-        self.summarizer = Summarizer(self.db)
+
+        # 【修改】先加载配置，再初始化组件
+        self.config = self._load_config()
+
+        # 从配置中获取 API key 和 base_url
+        api_key = self.config.get('openai_api_key', '')
+        base_url = self.config.get('openai_base_url', 'http://localhost:11434/v1')
+        model_name = self.config.get('openai_model_name', 'qwen3:8b')
+
+        self.fetcher = RSSFetcher(self.db, api_key=api_key, base_url=base_url)
+        self.summarizer = Summarizer(self.db, api_key=api_key, base_url=base_url, model_name=model_name)
         self.batch_importer = BatchImporter(self.db, self.fetcher)
         self.obsidian_writer = ObsidianWriter()
 
         # --- 新增：自动刷新定时器 (30 秒) ---
-        self.auto_refresh_timer = QTimer()
-        self.auto_refresh_timer.timeout.connect(self.trigger_auto_refresh)
-        self.auto_refresh_timer.start(30000)  # 30000 毫秒 = 30 秒
+        # self.auto_refresh_timer = QTimer()
+        # self.auto_refresh_timer.timeout.connect(self.trigger_auto_refresh)
+        # self.auto_refresh_timer.start(30000 * 2)  # 30000 毫秒 = 30 秒
         # ----------------------------------
 
         self.auto_fetch_timer = QTimer()
@@ -135,7 +144,6 @@ class MainWindow(QMainWindow):
         self.total_pages = 1
         self.current_articles = []
 
-        self.config = self._load_config()
         if self.config.get('obsidian_vault_path'):
             self.obsidian_writer.set_vault_path(self.config['obsidian_vault_path'])
 
@@ -149,8 +157,6 @@ class MainWindow(QMainWindow):
 
         if self.config.get('auto_fetch_on_startup', True):
             QTimer.singleShot(500, self.fetch_all_feeds)
-
-        # 【新增】定时刷新触发器
 
     def trigger_auto_refresh(self):
         # 检查是否已有抓取任务在运行
@@ -172,8 +178,8 @@ class MainWindow(QMainWindow):
 
     # 【新增】窗口关闭时清理定时器
     def closeEvent(self, event):
-        if hasattr(self, 'auto_refresh_timer'):
-            self.auto_refresh_timer.stop()
+        # if hasattr(self, 'auto_refresh_timer'):
+        #     self.auto_refresh_timer.stop()
         if hasattr(self, 'auto_fetch_timer'):
             self.auto_fetch_timer.stop()
         event.accept()
@@ -368,7 +374,7 @@ class MainWindow(QMainWindow):
         self.start_date_input = QDateEdit()
         self.start_date_input.setCalendarPopup(True)
         self.start_date_input.setDisplayFormat("yyyy-MM-dd")
-        self.start_date_input.setDate(QDate.currentDate().addMonths(-1)) # 默认近一个月
+        self.start_date_input.setDate(QDate.currentDate()) # 默认近一个月
         filter_layout.addWidget(self.start_date_input, row, 1)
 
         # 分隔符
@@ -1299,11 +1305,25 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(500)
         layout = QVBoxLayout(self)
 
+        # 【修改】添加 API Base URL 配置项
         layout.addWidget(QLabel("OpenAI API Key:"))
         self.api_key_input = QLineEdit()
         self.api_key_input.setText(self.config.get('openai_api_key', ''))
         self.api_key_input.setPlaceholderText("sk-...")
         layout.addWidget(self.api_key_input)
+
+        layout.addWidget(QLabel("OpenAI API Base URL:"))
+        self.base_url_input = QLineEdit()
+        self.base_url_input.setText(self.config.get('openai_base_url', 'http://localhost:11434/v1'))
+        self.base_url_input.setPlaceholderText("http://localhost:11434/v1")
+        layout.addWidget(self.base_url_input)
+
+        # 【新增】添加 Model Name 配置项
+        layout.addWidget(QLabel("OpenAI Model Name:"))
+        self.model_name_input = QLineEdit()
+        self.model_name_input.setText(self.config.get('openai_model_name', 'qwen3:8b'))
+        self.model_name_input.setPlaceholderText("qwen3:8b")
+        layout.addWidget(self.model_name_input)
 
         layout.addWidget(QLabel("Obsidian Vault 路径:"))
         vault_layout = QHBoxLayout()
@@ -1340,6 +1360,8 @@ class SettingsDialog(QDialog):
 
     def get_config(self) -> Dict:
         self.config['openai_api_key'] = self.api_key_input.text().strip()
+        self.config['openai_base_url'] = self.base_url_input.text().strip()
+        self.config['openai_model_name'] = self.model_name_input.text().strip()
         self.config['obsidian_vault_path'] = self.vault_path_input.text().strip()
         self.config['summary_language'] = self.lang_input.text().strip()
         try:
