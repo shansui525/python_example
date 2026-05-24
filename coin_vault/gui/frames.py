@@ -3,6 +3,7 @@
 GUI 框架模块
 包含所有功能页面：仪表盘、藏品库、买入、卖出、报表、设置
 修复内容：优化所有功能按钮的文字与背景对比度，确保清晰可见。
+新增：为仪表盘指标添加工具提示，显示计算方法说明。
 """
 
 import tkinter as tk
@@ -22,6 +23,91 @@ logger = logging.getLogger(__name__)
 # 设置中文字体，防止乱码 (根据操作系统可能需要调整字体名称)
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
+
+
+class ToolTip:
+    """工具提示类 - 为组件提供悬停提示功能"""
+
+    def __init__(self, widget, text, delay=500, wrap_length=250):
+        """
+        初始化工具提示
+
+        Args:
+            widget: 要添加提示的组件
+            text: 提示文本内容
+            delay: 延迟显示时间（毫秒）
+            wrap_length: 文本换行长度
+        """
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.wrap_length = wrap_length
+        self.tooltip_window = None
+        self.after_id = None
+
+        # 绑定事件
+        self.widget.bind('<Enter>', self._on_enter, '+')
+        self.widget.bind('<Leave>', self._on_leave, '+')
+        self.widget.bind('<Button-1>', self._on_leave, '+')  # 点击也隐藏
+
+    def _on_enter(self, event=None):
+        """鼠标进入事件"""
+        self._schedule_tooltip()
+
+    def _on_leave(self, event=None):
+        """鼠标离开事件"""
+        self._cancel_tooltip()
+        self._hide_tooltip()
+
+    def _schedule_tooltip(self):
+        """安排显示提示"""
+        self._cancel_tooltip()  # 取消之前的计划
+        self.after_id = self.widget.after(self.delay, self._show_tooltip)
+
+    def _cancel_tooltip(self):
+        """取消显示提示"""
+        if self.after_id:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+
+    def _show_tooltip(self):
+        """显示提示窗口"""
+        if self.tooltip_window:
+            return
+
+        # 获取鼠标位置
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
+
+        # 创建提示窗口
+        self.tooltip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)  # 无边框窗口
+        tw.wm_geometry(f"+{x}+{y}")
+
+        # 创建提示标签
+        label = tk.Label(
+            tw,
+            text=self.text,
+            justify=tk.LEFT,
+            background='#FFFFE0',  # 淡黄色背景
+            relief=tk.SOLID,
+            borderwidth=1,
+            font=('Microsoft YaHei', 9),
+            fg='#2C3E50',
+            wraplength=self.wrap_length,
+            padx=8,
+            pady=5
+        )
+        label.pack(ipadx=2, ipady=2)
+
+        # 确保提示窗口在最前面
+        tw.lift()
+
+    def _hide_tooltip(self):
+        """隐藏提示窗口"""
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
 
 
 class DashboardFrame(ttk.Frame):
@@ -61,11 +147,41 @@ class DashboardFrame(ttk.Frame):
 
         self.stat_cards = {}
         card_data = [
-            {'key': 'holding_value', 'title': '持仓市值', 'icon': '💰', 'color': '#B8860B'},
-            {'key': 'total_cost', 'title': '总成本', 'icon': '💵', 'color': '#3498DB'},
-            {'key': 'profit_loss', 'title': '已实现盈亏', 'icon': '📈', 'color': '#2E8B57'},
-            {'key': 'gold_weight', 'title': '金币克重', 'icon': '⚖️', 'color': '#DAA520'},
-            {'key': 'holding_count', 'title': '金币在库数量', 'icon': '🎯', 'color': '#9B59B6'},
+            {
+                'key': 'holding_value',
+                'title': '持仓市值',
+                'icon': '💰',
+                'color': '#B8860B',
+                'tooltip': '持仓市值 = Σ(在库藏品数量 × 当前市场价格)\n\n计算方法：\n• 遍历所有状态为"在库"的藏品\n• 使用最新金价/银价计算每个藏品的当前价值\n• 将所有在库藏品的价值相加\n\n用途：反映当前持仓的总市场价值'
+            },
+            {
+                'key': 'total_cost',
+                'title': '总成本',
+                'icon': '💵',
+                'color': '#3498DB',
+                'tooltip': '总成本 = Σ(在库藏品买入价 + 买入费用)\n\n计算方法：\n• 遍历所有状态为"在库"的藏品\n• 累加每个藏品的 total_cost 字段\n• total_cost = 买入单价 × 买入数量 + 买入费用\n\n用途：反映当前持仓的总投入成本'
+            },
+            {
+                'key': 'profit_loss',
+                'title': '已实现盈亏',
+                'icon': '📈',
+                'color': '#2E8B57',
+                'tooltip': '已实现盈亏 = Σ(已售藏品净销售额 - 总成本)\n\n计算方法：\n• 遍历所有状态为"已售"的藏品\n• 净销售额 = 卖出价格 - 卖出费用\n• 单个藏品盈亏 = 净销售额 - total_cost\n• 累加所有已售藏品的盈亏\n\n正数表示盈利（红色），负数表示亏损（绿色）'
+            },
+            {
+                'key': 'gold_weight',
+                'title': '金币克重',
+                'icon': '⚖️',
+                'color': '#DAA520',
+                'tooltip': '金币克重 = Σ(在库金币的重量)\n\n计算方法：\n• 筛选材质为"金"且状态为"在库"的藏品\n• 累加所有金币的 weight 字段\n• 单位：克(g)，保留3位小数\n\n用途：统计当前持有的黄金总重量'
+            },
+            {
+                'key': 'holding_count',
+                'title': '金币在库数量',
+                'icon': '🎯',
+                'color': '#9B59B6',
+                'tooltip': '金币在库数量 = COUNT(材质="金" AND 状态="在库")\n\n计算方法：\n• 筛选材质为"金"的藏品\n• 统计其中状态为"在库"的数量\n• 单位：枚\n\n用途：统计当前持有的金币总数量'
+            },
         ]
 
         for i, card in enumerate(card_data):
@@ -73,7 +189,8 @@ class DashboardFrame(ttk.Frame):
                 stats_container,
                 card['title'],
                 card['icon'],
-                card['color']
+                card['color'],
+                card.get('tooltip', '')
             )
             card_frame.pack(side=tk.LEFT, padx=10, fill=tk.BOTH, expand=True)
             self.stat_cards[card['key']] = card_frame
@@ -139,7 +256,7 @@ class DashboardFrame(ttk.Frame):
 
         self.recent_tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    def _create_stat_card(self, parent, title, icon, color):
+    def _create_stat_card(self, parent, title, icon, color, tooltip_text=''):
         """创建统计卡片"""
         card = tk.Frame(parent, bg=self.colors['card_bg'], relief=tk.RAISED, bd=1)
         card.configure(highlightbackground=color, highlightthickness=2)
@@ -148,22 +265,31 @@ class DashboardFrame(ttk.Frame):
         header.pack(fill=tk.X)
         header.pack_propagate(False)
 
-        tk.Label(
+        title_label = tk.Label(
             header,
             text=f"{icon} {title}",
             font=('Microsoft YaHei', 11),
             bg=color,
             fg='white'
-        ).pack(pady=8)
+        )
+        title_label.pack(pady=8)
 
-        self.value_label = tk.Label(
+        value_label = tk.Label(
             card,
             text="0",
             font=('Microsoft YaHei', 20, 'bold'),
             bg=self.colors['card_bg'],
             fg=color
         )
-        self.value_label.pack(pady=15)
+        value_label.pack(pady=15)
+
+        # 如果有提示文本，添加工具提示
+        if tooltip_text:
+            # 为整个卡片添加提示
+            ToolTip(card, tooltip_text, delay=300)
+            # 也为标题和价值标签添加提示
+            ToolTip(title_label, tooltip_text, delay=300)
+            ToolTip(value_label, tooltip_text, delay=300)
 
         return card
 
@@ -185,7 +311,7 @@ class DashboardFrame(ttk.Frame):
 
             pl_frame = self.stat_cards['profit_loss']
             pl_value = stats.get('realized_profit_loss', 0)
-            pl_color = self.colors['success'] if pl_value >= 0 else self.colors['danger']
+            pl_color = self.colors['danger'] if pl_value >= 0 else self.colors['success']
             for widget in pl_frame.winfo_children():
                 if isinstance(widget, tk.Label) and widget.cget('text') != f"📈 已实现盈亏":
                     widget.configure(text=f"¥{pl_value:,.2f}", fg=pl_color)
@@ -204,7 +330,6 @@ class DashboardFrame(ttk.Frame):
         self._update_material_distribution(stats.get('by_material', []))
         self._update_recent_transactions()
         logger.info("仪表盘数据刷新完成")
-
 
     def _update_material_distribution(self, data):
         """更新材质分布表格"""
@@ -252,7 +377,6 @@ class DashboardFrame(ttk.Frame):
                 f"{amount:,.2f}",
                 status
             ))
-
 
 class CollectionFrame(ttk.Frame):
     """藏品库管理页面"""
@@ -1086,11 +1210,8 @@ class BuyFrame(ttk.Frame):
             messagebox.showinfo("成功", "买入记录已保存！")
             self._clear_form()
 
-            # 刷新仪表盘和统计报表
-            if hasattr(self.main_window, 'dashboard_frame') and hasattr(self.main_window.dashboard_frame, 'refresh_data'):
-                self.main_window.dashboard_frame.refresh_data()
-            if hasattr(self.main_window, 'reports_frame') and hasattr(self.main_window.reports_frame, '_load_report'):
-                self.main_window.reports_frame._load_report()
+            # 删除立即刷新逻辑，改为依赖页面切换时自动刷新
+            # 这样可以避免重复刷新，提高性能
 
         except Exception as e:
             logger.error(f"买入保存失败：{str(e)}", exc_info=True)
@@ -1149,6 +1270,7 @@ class SellFrame(ttk.Frame):
         self.db = db
         self.main_window = main_window
         self.selected_item = None
+        self.current_filter = {}  # 新增：保存当前筛选条件
 
         self.colors = {
             'bg': '#F5F7FA',
@@ -1185,6 +1307,43 @@ class SellFrame(ttk.Frame):
         )
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
 
+        # 新增：搜索框区域
+        search_frame = tk.Frame(left_frame, bg=self.colors['bg'])
+        search_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+
+        tk.Label(search_frame, text="🔍 查询:", bg=self.colors['bg'], fg=self.colors['text'],
+                 font=('Microsoft YaHei', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 5))
+
+        self.search_var = tk.StringVar()
+        search_entry = tk.Entry(search_frame, textvariable=self.search_var, width=25,
+                                font=('Microsoft YaHei', 10))
+        search_entry.pack(side=tk.LEFT, padx=5)
+        search_entry.bind('<Return>', lambda e: self._apply_filter())
+        search_entry.bind('<KeyRelease>', lambda e: self._on_search_input())
+
+        tk.Button(
+            search_frame,
+            text="查询",
+            bg=self.colors['primary'],
+            fg='white',
+            font=('Microsoft YaHei', 9, 'bold'),
+            padx=10,
+            pady=3,
+            command=self._apply_filter
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            search_frame,
+            text="清空",
+            bg='#95A5A6',
+            fg='#2C3E50',
+            font=('Microsoft YaHei', 9, 'bold'),
+            padx=10,
+            pady=3,
+            command=self._clear_filter
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 藏品列表
         self.holdings_tree = ttk.Treeview(
             left_frame,
             columns=('ID', '名称', '材质', '重量', '买入价', '克价'),
@@ -1324,6 +1483,61 @@ class SellFrame(ttk.Frame):
                 f"{item.get('buy_gram_price', 0):,.2f}"
             ))
 
+    def _on_search_input(self):
+        """搜索框输入时的实时过滤（可选）"""
+        # 如果需要实时搜索，可以取消下面的注释
+        # self._apply_filter()
+        pass
+
+    def _apply_filter(self):
+        """应用筛选条件"""
+        keyword = self.search_var.get().strip()
+
+        if keyword:
+            logger.info(f"卖出页面搜索 - 关键词：{keyword}")
+            self.current_filter = {'keyword': keyword, 'status': '在库'}
+        else:
+            self.current_filter = {'status': '在库'}
+
+        self._load_filtered_data()
+
+    def _clear_filter(self):
+        """清空筛选条件"""
+        self.search_var.set('')
+        self.current_filter = {'status': '在库'}
+        self._load_filtered_data()
+        logger.info("卖出页面筛选已清空")
+
+    def _load_filtered_data(self):
+        """加载筛选后的数据"""
+        for item in self.holdings_tree.get_children():
+            self.holdings_tree.delete(item)
+
+        holdings = self.db.get_collections(self.current_filter)
+
+        for item in holdings:
+            self.holdings_tree.insert('', tk.END, values=(
+                item.get('item_id', ''),
+                item.get('name', ''),
+                item.get('material', ''),
+                f"{item.get('weight', 0):.3f}",
+                f"{item.get('buy_price', 0):,.2f}",
+                f"{item.get('buy_gram_price', 0):,.2f}"
+            ))
+
+        # 更新提示信息
+        count = len(holdings)
+        if self.current_filter.get('keyword'):
+            self.selected_label.configure(
+                text=f"搜索结果：共 {count} 条记录",
+                fg=self.colors['text']
+            )
+
+    def refresh_data(self):
+        """刷新数据（供外部调用）"""
+        self._clear_filter()
+        self._load_holdings()
+
     def _on_select_item(self, event):
         """选中藏品"""
         selection = self.holdings_tree.selection()
@@ -1444,7 +1658,8 @@ class SellFrame(ttk.Frame):
 
             messagebox.showinfo("成功", result)
 
-            self._load_holdings()
+            # 清空筛选并重新加载数据
+            self._clear_filter()
             self.selected_item = None
             self.selected_label.configure(text="请从左侧选择要卖出的藏品")
 
@@ -1452,17 +1667,12 @@ class SellFrame(ttk.Frame):
                 entry.delete(0, tk.END)
             self.sell_entries['sell_date'].insert(0, datetime.now().strftime('%Y-%m-%d'))
 
-            # 刷新仪表盘和统计报表
-            if hasattr(self.main_window, 'dashboard_frame') and hasattr(self.main_window.dashboard_frame, 'refresh_data'):
-                self.main_window.dashboard_frame.refresh_data()
-            if hasattr(self.main_window, 'reports_frame') and hasattr(self.main_window.reports_frame, '_load_report'):
-                self.main_window.reports_frame._load_report()
+            # 删除立即刷新逻辑，改为依赖页面切换时自动刷新
+            # 这样可以避免重复刷新，提高性能
 
         except Exception as e:
             logger.error(f"卖出保存失败：{str(e)}", exc_info=True)
             messagebox.showerror("错误", f"保存失败：{str(e)}")
-
-        # ... existing code ...
 
 
 class ReportsFrame(ttk.Frame):
@@ -1522,7 +1732,7 @@ class ReportsFrame(ttk.Frame):
 
         # 绑定鼠标滚轮事件
         def _on_mousewheel(event):
-            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
         self.canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
@@ -1617,31 +1827,35 @@ class ReportsFrame(ttk.Frame):
         self.material_tree.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10, pady=10)
         vsb2.pack(side=tk.RIGHT, fill=tk.Y)
 
-# ... existing code ...
-
+        # ... existing code ...
 
         bottom_frame = tk.Frame(content, bg=self.colors['bg'])
         bottom_frame.pack(fill=tk.X, padx=5, pady=(0, 15))
 
         self.summary_labels = {}
         summary_items = [
-            ('total_invested', '累计投入'),
-            ('total_cost', '持仓成本'),
-            ('total_value', '持仓市值'),
-            ('realized_pl', '已实现盈亏'),
+            ('total_invested', '累计投入',
+             '累计投入 = Σ(所有藏品的买入总成本)\n\n计算方法：\n• 遍历数据库中所有藏品记录（包括在库和已售）\n• 累加每个藏品的 total_cost 字段\n• total_cost = 买入单价 × 买入数量 + 买入费用\n\n用途：反映历史总投资金额'),
+            ('total_cost', '持仓成本',
+             '持仓成本 = Σ(在库藏品的买入总成本)\n\n计算方法：\n• 筛选状态为"在库"的藏品\n• 累加这些藏品的 total_cost 字段\n• total_cost = 买入单价 × 买入数量 + 买入费用\n\n用途：反映当前持仓的总投入成本'),
+            ('total_value', '持仓市值',
+             '持仓市值 = Σ(在库藏品数量 × 当前市场价格)\n\n计算方法：\n• 筛选状态为"在库"的藏品\n• 使用最新金价/银价计算每个藏品的当前价值\n• 将所有在库藏品的价值相加\n\n用途：反映当前持仓的总市场价值'),
+            ('realized_pl', '已实现盈亏',
+             '已实现盈亏 = Σ(已售藏品净销售额 - 总成本)\n\n计算方法：\n• 筛选状态为"已售"的藏品\n• 净销售额 = 卖出价格 - 卖出费用\n• 单个藏品盈亏 = 净销售额 - total_cost\n• 累加所有已售藏品的盈亏\n\n颜色说明：\n• 红色表示盈利（正数）\n• 绿色表示亏损（负数）'),
         ]
 
-        for i, (key, label) in enumerate(summary_items):
+        for i, (key, label, tooltip) in enumerate(summary_items):
             card = tk.Frame(bottom_frame, bg=self.colors['card_bg'], relief=tk.RAISED, bd=1)
             card.pack(side=tk.LEFT, padx=5, fill=tk.BOTH, expand=True)
 
-            tk.Label(
+            title_label = tk.Label(
                 card,
                 text=label,
                 font=('Microsoft YaHei', 10),
                 bg=self.colors['card_bg'],
                 fg=self.colors['text_secondary']
-            ).pack(pady=(10, 5))
+            )
+            title_label.pack(pady=(10, 5))
 
             value_label = tk.Label(
                 card,
@@ -1653,8 +1867,13 @@ class ReportsFrame(ttk.Frame):
             value_label.pack(pady=(0, 10))
             self.summary_labels[key] = value_label
 
-# ... existing code ...
+            # 添加工具提示
+            if tooltip:
+                ToolTip(card, tooltip, delay=300)
+                ToolTip(title_label, tooltip, delay=300)
+                ToolTip(value_label, tooltip, delay=300)
 
+    # ... existing code ...
 
     def _load_report(self):
         """加载报表数据"""
@@ -1682,13 +1901,13 @@ class ReportsFrame(ttk.Frame):
             for i, (month, profit) in enumerate(zip(months, realized_profits)):
                 if profit != 0:  # 只显示非零值
                     ax2.annotate(f'{profit:,.0f}',
-                                xy=(month, profit),
-                                xytext=(0, 10),
-                                textcoords='offset points',
-                                ha='center',
-                                fontsize=8,
-                                color='#CD5C5C',
-                                fontweight='bold')
+                                 xy=(month, profit),
+                                 xytext=(0, 10),
+                                 textcoords='offset points',
+                                 ha='center',
+                                 fontsize=8,
+                                 color='#CD5C5C',
+                                 fontweight='bold')
 
             ax.set_xlabel('月份')
             ax.set_ylabel('持仓市值 (元)', color='#B8860B', fontsize=12)
@@ -1736,7 +1955,7 @@ class ReportsFrame(ttk.Frame):
             if profit_loss >= 0:
                 pl_color = 'profit'  # 盈利 - 红色
             else:
-                pl_color = 'loss'    # 亏损 - 绿色
+                pl_color = 'loss'  # 亏损 - 绿色
 
             self.report_tree.insert('', tk.END, values=(
                 row.get('category', ''),
@@ -1752,7 +1971,7 @@ class ReportsFrame(ttk.Frame):
 
         # 配置颜色标签：盈利红色，亏损绿色
         self.report_tree.tag_configure('profit', foreground='#CD5C5C')  # 红色（盈利）
-        self.report_tree.tag_configure('loss', foreground='#2E8B57')    # 绿色（亏损）
+        self.report_tree.tag_configure('loss', foreground='#2E8B57')  # 绿色（亏损）
 
         stats = self.db.get_statistics()
 
@@ -1760,8 +1979,14 @@ class ReportsFrame(ttk.Frame):
         self.summary_labels['total_cost'].configure(text=f"¥{stats.get('total_cost', 0):,.2f}")
         self.summary_labels['total_value'].configure(text=f"¥{stats.get('total_market_value', 0):,.2f}")
 
-        pl_color = self.colors['success'] if total_realized >= 0 else self.colors['danger']
-        self.summary_labels['realized_pl'].configure(text=f"¥{total_realized:,.2f}", fg=pl_color)
+        # 【修复】已实现盈亏：红色表示盈利，绿色表示亏损
+        pl_value = total_realized
+        if pl_value >= 0:
+            pl_color = self.colors['danger']  # 红色表示盈利
+        else:
+            pl_color = self.colors['success']  # 绿色表示亏损
+
+        self.summary_labels['realized_pl'].configure(text=f"¥{pl_value:,.2f}", fg=pl_color)
 
         # 更新持仓材质分布（传入年份参数）
         year_param = year if year != '全部' else None
@@ -1787,7 +2012,7 @@ class ReportsFrame(ttk.Frame):
             if profit_loss >= 0:
                 tag = 'profit'  # 盈利 - 红色
             else:
-                tag = 'loss'    # 亏损 - 绿色
+                tag = 'loss'  # 亏损 - 绿色
 
             self.material_tree.insert('', tk.END, values=(
                 row.get('material', ''),
@@ -1801,8 +2026,7 @@ class ReportsFrame(ttk.Frame):
 
         # 配置颜色标签
         self.material_tree.tag_configure('profit', foreground='#CD5C5C')  # 红色（盈利）
-        self.material_tree.tag_configure('loss', foreground='#2E8B57')    # 绿色（亏损）
-
+        self.material_tree.tag_configure('loss', foreground='#2E8B57')  # 绿色（亏损）
 
 
 class SettingsFrame(ttk.Frame):
@@ -2014,9 +2238,15 @@ class SettingsFrame(ttk.Frame):
 
     def _load_settings(self):
         """加载设置"""
+        # 【修复】先清空所有输入框，防止数据拼接
+        self.gold_date_entry.delete(0, tk.END)
+        self.gold_price_entry.delete(0, tk.END)
+        self.silver_price_entry.delete(0, tk.END)
+        self.platinum_price_entry.delete(0, tk.END)
+        self.palladium_price_entry.delete(0, tk.END)
+
         gold_price = self.db.get_gold_price()
         if gold_price:
-            self.gold_date_entry.delete(0, tk.END)
             self.gold_date_entry.insert(0, gold_price.get('date', ''))
             if gold_price.get('gold_price'):
                 self.gold_price_entry.insert(0, str(gold_price['gold_price']))
@@ -2053,17 +2283,11 @@ class SettingsFrame(ttk.Frame):
             logger.info(f"金价记录已保存到数据库")
             messagebox.showinfo("成功", "金价记录已保存")
 
-            # 刷新仪表盘和统计报表
-            if hasattr(self.main_window, 'dashboard_frame') and hasattr(self.main_window.dashboard_frame, 'refresh_data'):
-                self.main_window.dashboard_frame.refresh_data()
-            if hasattr(self.main_window, 'reports_frame') and hasattr(self.main_window.reports_frame, '_load_report'):
-                self.main_window.reports_frame._load_report()
+            # 删除立即刷新逻辑，改为依赖页面切换时自动刷新
 
         except Exception as e:
             logger.error(f"金价保存失败：{str(e)}", exc_info=True)
             messagebox.showerror("错误", f"保存失败：{str(e)}")
-
-    # ... existing code ...
 
     def _find_buy_frame(self):
         """安全地查找 BuyFrame 实例"""

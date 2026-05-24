@@ -285,10 +285,32 @@ class MainWindow(tk.Tk):
     # ... existing code ...
 
     def _on_tab_changed(self, event):
-        """选项卡切换时的日志记录"""
+        """选项卡切换时的日志记录和数据刷新"""
         selected_tab = self.notebook.select()
         tab_name = self.notebook.tab(selected_tab, "text")
         logger.info(f"用户切换页面：{tab_name}")
+
+        # 根据切换到的页面自动刷新数据
+        if selected_tab == str(self.dashboard_frame):
+            logger.info("刷新仪表盘数据")
+            self.dashboard_frame.refresh_data()
+
+        elif selected_tab == str(self.collection_frame):
+            logger.info("刷新藏品库数据")
+            self.collection_frame.refresh_data()
+
+        elif selected_tab == str(self.sell_frame):
+            logger.info("刷新卖出录入数据")
+            self.sell_frame.refresh_data()
+
+        elif selected_tab == str(self.reports_frame):
+            logger.info("刷新统计报表数据")
+            self.reports_frame._load_report()
+
+        elif selected_tab == str(self.settings_frame):
+            logger.info("刷新系统设置数据")
+            self.settings_frame._load_settings()
+            self.settings_frame._show_api_prices()
 
     def _on_closing(self):
         """窗口关闭处理"""

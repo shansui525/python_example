@@ -393,7 +393,7 @@ class DatabaseManager:
         total_market_value = 0.0
         total_cost_sum = 0.0
         total_gold_weight = 0.0
-        holding_count = len(holdings)
+        holding_count = 0
         material_stats = {}
 
         for row in holdings:
@@ -403,6 +403,10 @@ class DatabaseManager:
             item_type = row['type']
             current_mv = row['current_market_value']
             quantity = row['buy_quantity'] or 1  # 获取数量，默认为1
+
+            # 【修改】累加金币数量
+            if material == '金':
+                holding_count += quantity
 
             # 累加总成本
             total_cost_sum += cost
@@ -415,9 +419,9 @@ class DatabaseManager:
                 unit_price = price_map.get(material, 0)
                 current_item_value = weight * quantity * unit_price
 
-                # 统计黄金克重 (总克重 = 单枚重量 × 数量)
-                if material == '金':
-                    total_gold_weight += weight * quantity
+            # 统计黄金克重 (总克重 = 单枚重量 × 数量)
+            if material == '金':
+                total_gold_weight += weight * quantity
 
             elif item_type == '纪念币':
                 # 纪念币：优先使用 current_market_value，若为空则使用 total_cost (购买价)
