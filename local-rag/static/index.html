@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Local RAG</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Local RAG</h1>
+        <p class="muted">本地文档问答 · 上传 → 建索引 → 提问</p>
+      </div>
+      <div id="badge" class="badge">检查中…</div>
+    </header>
+
+    <main class="grid">
+      <section class="panel">
+        <h2>知识库</h2>
+        <div class="row">
+          <input id="file" type="file" accept=".txt,.md,.markdown,.pdf" />
+          <button id="btnUpload" class="primary">上传</button>
+        </div>
+        <ul id="docs" class="docs"></ul>
+        <div class="row">
+          <button id="btnReindex" class="primary">重建索引</button>
+          <span id="indexInfo" class="muted"></span>
+        </div>
+      </section>
+
+      <section class="panel chat-panel">
+        <h2>问答</h2>
+        <div id="chat" class="chat"></div>
+        <div class="ask-row">
+          <textarea id="question" rows="3" placeholder="基于已入库文档提问…"></textarea>
+          <button id="btnAsk" class="primary">提问</button>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

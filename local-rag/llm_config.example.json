@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "base_url": "https://api.deepseek.com/v1",
+  "api_key": "sk-your-key-here",
+  "model": "deepseek-chat",
+  "temperature": 0.2,
+  "max_tokens": 2048,
+  "timeout_sec": 120,
+  "extra_body": {
+    "thinking": { "type": "disabled" }
+  },
+  "rag": {
+    "chunk_size": 600,
+    "chunk_overlap": 100,
+    "top_k": 4,
+    "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+  }
+}

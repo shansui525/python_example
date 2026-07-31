@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+llm_config.json
+data/index/*
+!data/index/.gitkeep
+.DS_Store
+*.npy

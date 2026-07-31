@@ -1,0 +1,18 @@
+# Local RAG 依赖（教学版：尽量少而够用）
+#
+# fastapi/uvicorn     Web API 与服务器
+# openai              调 OpenAI 兼容聊天接口（DeepSeek/Ollama 等）
+# pydantic            请求体校验
+# python-multipart    文件上传
+# numpy               向量存储与相似度计算
+# pypdf               PDF 抽文本
+# sentence-transformers  本地 Embedding 模型
+
+fastapi>=0.110
+uvicorn>=0.27
+openai>=1.40
+pydantic>=2.0
+python-multipart>=0.0.9
+numpy>=1.24
+pypdf>=4.0
+sentence-transformers>=2.7.0
